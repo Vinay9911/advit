@@ -14,49 +14,51 @@ def ensure_directories():
 
 def send_whatsapp_message(page, number, image_path, caption):
     print(f"   -> Opening chat for {number}...")
-    
-    # 1. Open direct chat link
     page.goto(f"https://web.whatsapp.com/send?phone={number}")
 
-    # 2. Wait for the chat to load (look for the message input box)
+    # --- FIX: BETTER LOADING CHECK ---
+    # We wait specifically for the 'footer' element (where the type bar is).
+    # If this times out, it means the chat didn't open (or number is invalid).
     try:
-        # Increased timeout to 60s for slow loads
-        page.wait_for_selector('div[contenteditable="true"]', timeout=60000)
+        page.wait_for_selector('footer', timeout=20000)
+        print("   -> Chat verified (Footer loaded).")
     except:
-        print(f"   [Error] Could not load chat for {number}. Number might be invalid.")
+        print(f"   [!] Error: Chat footer did not load for {number}. Number might be invalid or popup blocked it.")
         return
 
-    print("   -> Chat loaded. Uploading image...")
-
-    # 3. Handle Image Upload (FIXED METHOD)
+    # --- FIX: ROBUST UPLOAD ---
+    print("   -> Uploading image...")
     try:
-        # A. Click the "Attach" (Plus) icon to activate the DOM elements
-        # We try multiple common selectors for the Attach button
-        attach_btn = page.locator('div[title="Attach"]').or_(page.locator('span[data-icon="plus"]'))
-        attach_btn.first.click()
+        # 1. Click the "+" (Attach) button. 
+        # We look for the button explicitly inside the footer to be safe.
+        # Common selectors: title="Attach" or data-icon="plus"
+        attach_button = page.locator('div[title="Attach"]').or_(page.locator('span[data-icon="plus"]'))
+        attach_button.first.click()
         
-        # B. Directly inject the file into the hidden input
-        # We look for the input that accepts images
-        file_input = page.locator('input[accept*="image"]')
-        file_input.set_input_files(image_path)
+        # 2. Upload the file to the hidden input
+        # Once the menu is open, the input[type='file'] becomes available/active
+        page.locator('input[type="file"]').set_input_files(image_path)
         
     except Exception as e:
         print(f"   [!] Upload failed: {e}")
         return
 
-    # 4. Handle Caption
+    # Handle Caption
     if caption:
         print("   -> Adding caption...")
-        # Wait for the image preview window (caption bar)
-        page.wait_for_selector('div[contenteditable="true"]', timeout=15000)
-        page.keyboard.type(caption)
+        # Wait for the caption input box (it appears after file selection)
+        try:
+            page.wait_for_selector('div[aria-label="Add a caption"]', timeout=10000)
+            page.locator('div[aria-label="Add a caption"]').type(caption)
+        except:
+            # Fallback if aria-label changes
+            page.keyboard.type(caption)
+            
         time.sleep(1) 
 
-    # 5. Click Send
+    # Click Send
     print("   -> Sending...")
     page.keyboard.press("Enter")
-    
-    # Wait for message to send
     time.sleep(5) 
 
 def main():
@@ -69,7 +71,6 @@ def main():
         return
 
     with sync_playwright() as p:
-        # Launch Browser
         browser = p.chromium.launch(headless=HEADLESS_MODE)
         context = browser.new_context()
         page = context.new_page()
@@ -79,9 +80,9 @@ def main():
         page.goto("https://web.whatsapp.com")
         print("PLEASE SCAN THE QR CODE ON THE BROWSER NOW.")
         
-        # Wait until the search bar appears
+        # Wait for the sidebar to load (indicates login success)
         try:
-            page.wait_for_selector("div[contenteditable='true']", timeout=60000)
+            page.wait_for_selector("#pane-side", timeout=60000)
         except:
             print("Login timeout. Please run again and scan faster.")
             browser.close()
@@ -99,15 +100,14 @@ def main():
             print(f"\nProcessing {name} ({index + 1}/{len(df)})...")
 
             try:
-                # A. Open URL and Screenshot
+                # Screenshot
                 print(f"   -> navigating to {url}")
-                page.goto(url, timeout=30000)
-                
+                page.goto(url, timeout=45000)
                 screenshot_filename = f"{SCREENSHOT_DIR}/{name.replace(' ', '_')}.png"
                 page.screenshot(path=screenshot_filename, full_page=True)
-                print(f"   -> Screenshot saved: {screenshot_filename}")
+                print(f"   -> Screenshot saved")
 
-                # B. Send via WhatsApp
+                # Send
                 send_whatsapp_message(page, number, screenshot_filename, caption)
                 print("   -> Done!")
 
