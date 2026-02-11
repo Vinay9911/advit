@@ -1,2 +1,4 @@
 playwright
 pandas
+Pillow
+pywin32
